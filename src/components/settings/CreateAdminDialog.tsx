@@ -7,8 +7,10 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
-import { Shield, Mail, Key, Users, UserPlus, RefreshCw, Settings } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Shield, Mail, Key, Users, UserPlus, RefreshCw, Settings, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useAdminUserCreation } from '@/hooks/useAdminUserCreation';
+import { useToast } from '@/hooks/use-toast';
 interface CreateAdminDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -29,15 +31,47 @@ export const CreateAdminDialog = ({
   const [useAutoUsername, setUseAutoUsername] = useState(true);
   const [usernameFormat, setUsernameFormat] = useState<'full' | 'initials' | 'firstname'>('full');
   const [requiresPasswordChange, setRequiresPasswordChange] = useState(true);
+  
+  // Validation states
+  const [emailValidation, setEmailValidation] = useState<{ valid: boolean; errors: string[]; warnings: string[] } | null>(null);
+  const [passwordValidation, setPasswordValidation] = useState<{ valid: boolean; errors: string[]; warnings: string[] } | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
+
+  const { toast } = useToast();
   const {
     createAdminUser,
     generateSecurePassword,
     generateUsernameFromEmailAddr,
     generatePasswordWithTemplate,
     getPasswordTemplates,
+    validateAdminData,
+    validateAdminEmailOnly,
+    validateAdminPasswordOnly,
     isCreating
   } = useAdminUserCreation();
   const passwordTemplates = getPasswordTemplates();
+
+  // Real-time email validation
+  useEffect(() => {
+    if (email.trim()) {
+      setIsValidating(true);
+      const validation = validateAdminEmailOnly(email);
+      setEmailValidation(validation);
+      setIsValidating(false);
+    } else {
+      setEmailValidation(null);
+    }
+  }, [email, validateAdminEmailOnly]);
+
+  // Real-time password validation
+  useEffect(() => {
+    if (useImmediateAccess && immediatePassword.trim()) {
+      const validation = validateAdminPasswordOnly(immediatePassword, email);
+      setPasswordValidation(validation);
+    } else {
+      setPasswordValidation(null);
+    }
+  }, [immediatePassword, email, useImmediateAccess, validateAdminPasswordOnly]);
 
   // Auto-generate username when email changes
   useEffect(() => {
@@ -80,17 +114,30 @@ export const CreateAdminDialog = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Enhanced validation
-    if (!email?.trim()) {
+    // Comprehensive validation before submission
+    const validationResult = validateAdminData({
+      email: email.trim(),
+      role,
+      password: useImmediateAccess ? immediatePassword : undefined,
+      username: username?.trim()
+    });
+
+    if (!validationResult.valid) {
+      toast({
+        title: 'Validation Failed',
+        description: validationResult.errors.join('. '),
+        variant: 'destructive'
+      });
       return;
     }
-    
-    if (!role) {
-      return;
-    }
-    
-    if (useImmediateAccess && !immediatePassword?.trim()) {
-      return;
+
+    // Show warnings if any
+    if (validationResult.warnings.length > 0) {
+      toast({
+        title: 'Security Warning',
+        description: validationResult.warnings.join('. '),
+        variant: 'destructive'
+      });
     }
     
     const result = await createAdminUser({
@@ -105,6 +152,15 @@ export const CreateAdminDialog = ({
     });
     
     if (result.success) {
+      // Show warnings from the creation process if any
+      if (result.warnings && result.warnings.length > 0) {
+        toast({
+          title: 'Admin Created with Warnings',
+          description: result.warnings.join('. '),
+          variant: 'default'
+        });
+      }
+
       // Reset form and close dialog
       setEmail('');
       setRole('admin');
@@ -116,6 +172,8 @@ export const CreateAdminDialog = ({
       setUseAutoUsername(true);
       setUsernameFormat('full');
       setRequiresPasswordChange(true);
+      setEmailValidation(null);
+      setPasswordValidation(null);
       onOpenChange(false);
       onSuccess?.();
     }
@@ -147,9 +205,37 @@ export const CreateAdminDialog = ({
                     placeholder="admin@example.com" 
                     value={email} 
                     onChange={e => setEmail(e.target.value)} 
-                    className="h-11"
+                    className={`h-11 ${emailValidation?.valid === false ? 'border-red-500' : emailValidation?.valid === true ? 'border-green-500' : ''}`}
                     required 
                   />
+                  
+                  {/* Email validation feedback */}
+                  {emailValidation && (
+                    <div className="space-y-1">
+                      {emailValidation.errors.length > 0 && (
+                        <Alert className="border-red-200 bg-red-50">
+                          <AlertTriangle className="h-4 w-4 text-red-600" />
+                          <AlertDescription className="text-red-800">
+                            {emailValidation.errors.join('. ')}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                      {emailValidation.warnings.length > 0 && (
+                        <Alert className="border-yellow-200 bg-yellow-50">
+                          <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                          <AlertDescription className="text-yellow-800">
+                            {emailValidation.warnings.join('. ')}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+                      {emailValidation.valid && emailValidation.errors.length === 0 && (
+                        <div className="flex items-center gap-1 text-green-600 text-sm">
+                          <CheckCircle className="h-3 w-3" />
+                          Valid email address
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 
                 <div className="space-y-3">
@@ -272,12 +358,48 @@ export const CreateAdminDialog = ({
                           placeholder="Enter or generate password" 
                           value={immediatePassword} 
                           onChange={e => setImmediatePassword(e.target.value)} 
-                          className="font-mono h-11 flex-1"
+                          className={`font-mono h-11 flex-1 ${passwordValidation?.valid === false ? 'border-red-500' : passwordValidation?.valid === true ? 'border-green-500' : ''}`}
                         />
                         <Button type="button" variant="outline" onClick={handleGeneratePassword} className="h-11 px-3">
                           <RefreshCw className="h-4 w-4" />
                         </Button>
                       </div>
+                      
+                      {/* Password validation feedback */}
+                      {passwordValidation && (
+                        <div className="space-y-1">
+                          {passwordValidation.errors.length > 0 && (
+                            <Alert className="border-red-200 bg-red-50">
+                              <AlertTriangle className="h-4 w-4 text-red-600" />
+                              <AlertDescription className="text-red-800 text-xs">
+                                <ul className="list-disc list-inside space-y-1">
+                                  {passwordValidation.errors.map((error, idx) => (
+                                    <li key={idx}>{error}</li>
+                                  ))}
+                                </ul>
+                              </AlertDescription>
+                            </Alert>
+                          )}
+                          {passwordValidation.warnings.length > 0 && (
+                            <Alert className="border-yellow-200 bg-yellow-50">
+                              <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                              <AlertDescription className="text-yellow-800 text-xs">
+                                <ul className="list-disc list-inside space-y-1">
+                                  {passwordValidation.warnings.map((warning, idx) => (
+                                    <li key={idx}>{warning}</li>
+                                  ))}
+                                </ul>
+                              </AlertDescription>
+                            </Alert>
+                          )}
+                          {passwordValidation.valid && passwordValidation.errors.length === 0 && (
+                            <div className="flex items-center gap-1 text-green-600 text-xs">
+                              <CheckCircle className="h-3 w-3" />
+                              Password meets security requirements
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Password Change Requirement */}
@@ -321,7 +443,14 @@ export const CreateAdminDialog = ({
               </Button>
               <Button 
                 type="submit" 
-                disabled={!email?.trim() || !role || (useImmediateAccess && !immediatePassword?.trim()) || isCreating}
+                disabled={
+                  !email?.trim() || 
+                  !role || 
+                  (useImmediateAccess && !immediatePassword?.trim()) || 
+                  isCreating ||
+                  (emailValidation && !emailValidation.valid) ||
+                  (passwordValidation && !passwordValidation.valid)
+                }
                 className="flex-1 sm:flex-initial h-11 font-medium"
               >
                 {isCreating ? (

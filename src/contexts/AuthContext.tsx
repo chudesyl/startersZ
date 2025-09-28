@@ -459,34 +459,112 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signUpAdmin = async (credentials: { email: string; password: string; name: string }) => {
     try {
       const { email, password, name } = credentials;
+      
+      // Enhanced validation for admin signup
+      if (!email || !password || !name) {
+        const error = 'Email, password, and name are required for admin registration';
+        toast({
+          title: "Validation Error",
+          description: error,
+          variant: "destructive",
+        });
+        return { success: false, error };
+      }
+
+      // Email format validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        const error = 'Please enter a valid email address';
+        toast({
+          title: "Invalid Email",
+          description: error,
+          variant: "destructive",
+        });
+        return { success: false, error };
+      }
+
+      // Enhanced password validation for admin accounts
+      if (password.length < 12) {
+        const error = 'Admin password must be at least 12 characters long';
+        toast({
+          title: "Weak Password",
+          description: error,
+          variant: "destructive",
+        });
+        return { success: false, error };
+      }
+
+      // Check password complexity for admin accounts
+      const hasUppercase = /[A-Z]/.test(password);
+      const hasLowercase = /[a-z]/.test(password);
+      const hasNumbers = /\d/.test(password);
+      const hasSpecialChars = /[!@#$%^&*(),.?":{}|<>_+=\-\[\]\\\/~`]/.test(password);
+
+      if (!hasUppercase || !hasLowercase || !hasNumbers || !hasSpecialChars) {
+        const error = 'Admin password must contain uppercase, lowercase, numbers, and special characters';
+        toast({
+          title: "Weak Password",
+          description: error,
+          variant: "destructive",
+        });
+        return { success: false, error };
+      }
+
+      // Check for common password patterns
+      const commonPatterns = ['password', 'admin', 'root', '123456', 'qwerty'];
+      const hasCommonPattern = commonPatterns.some(pattern => 
+        password.toLowerCase().includes(pattern)
+      );
+      
+      if (hasCommonPattern) {
+        const error = 'Admin password cannot contain common patterns';
+        toast({
+          title: "Weak Password",
+          description: error,
+          variant: "destructive",
+        });
+        return { success: false, error };
+      }
+
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: email.toLowerCase().trim(),
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/auth-callback`,
           data: {
             user_type: 'admin',
             role: 'admin',
-            name,
-            full_name: name,
+            name: name.trim(),
+            full_name: name.trim(),
+            admin_signup: true, // Flag to identify admin self-signup
+            created_at: new Date().toISOString()
           },
         },
       });
 
       if (error) {
         console.error('Admin sign up error:', error);
+        
+        // Provide more specific error messages
+        let errorMessage = error.message;
+        if (error.message.includes('already registered')) {
+          errorMessage = 'An admin account with this email already exists. Please use a different email or try logging in.';
+        } else if (error.message.includes('invalid email')) {
+          errorMessage = 'Please enter a valid email address.';
+        }
+        
         toast({
           title: "Admin registration failed",
-          description: error.message,
+          description: errorMessage,
           variant: "destructive",
         });
-        return { success: false, error: error.message };
+        return { success: false, error: errorMessage };
       }
 
       if (data.user && !data.user.email_confirmed_at) {
         toast({
           title: "Admin registration successful!",
-          description: "Please check your email to verify your account.",
+          description: "Please check your email to verify your account before accessing the admin dashboard.",
         });
         return { success: true, requiresEmailVerification: true };
       }
@@ -494,7 +572,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       return { success: true, redirect: handlePostLoginRedirect('admin') };
     } catch (error: any) {
       console.error('Admin sign up error:', error);
-      return { success: false, error: error.message };
+      const errorMessage = 'An unexpected error occurred during admin registration. Please try again.';
+      toast({
+        title: "Registration Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+      return { success: false, error: errorMessage };
     }
   };
 

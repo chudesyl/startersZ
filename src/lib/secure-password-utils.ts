@@ -21,9 +21,10 @@ export function validatePasswordStrength(password: string): PasswordValidation {
 
   // Enhanced production-ready validation
   
-  // Minimum length check (increased to 12 for production)
-  if (password.length < 12) {
-    errors.push('Password must be at least 12 characters long');
+  // Minimum length check (increased to 12 for production, 14 for admin accounts)
+  const minLength = 12;
+  if (password.length < minLength) {
+    errors.push(`Password must be at least ${minLength} characters long`);
   }
 
   // Character type checks (all required for production)

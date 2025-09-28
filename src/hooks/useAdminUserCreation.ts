@@ -8,6 +8,12 @@ import {
   generateBulkPasswords,
   type PasswordTemplate 
 } from '@/lib/secure-password-utils';
+import { 
+  validateAdminUserData, 
+  validateAdminEmail, 
+  validateAdminPassword,
+  type AdminValidationResult 
+} from '@/lib/validations/admin-user';
 
 interface CreateAdminUserParams {
   email: string;
@@ -38,36 +44,49 @@ export const useAdminUserCreation = () => {
   const [isCreating, setIsCreating] = useState(false);
   const { toast } = useToast();
 
-  const createAdminUser = async (params: CreateAdminUserParams): Promise<{ success: boolean; data?: any; error?: string }> => {
+  const createAdminUser = async (params: CreateAdminUserParams): Promise<{ success: boolean; data?: any; error?: string; warnings?: string[] }> => {
     setIsCreating(true);
 
     try {
-      // Input validation
-      if (!params.email || !params.role) {
-        throw new Error('Email and role are required');
+      // Enhanced input validation using new validation utilities
+      const validationResult = validateAdminUserData({
+        email: params.email || '',
+        role: params.role || '',
+        password: params.immediate_password,
+        username: params.username
+      });
+
+      if (!validationResult.valid) {
+        const errorMessage = validationResult.errors.join('. ');
+        toast({
+          title: 'Validation Failed',
+          description: errorMessage,
+          variant: 'destructive'
+        });
+        return { success: false, error: errorMessage };
       }
 
-      // Email format validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(params.email)) {
-        throw new Error('Invalid email format');
+      // Show warnings if any
+      if (validationResult.warnings.length > 0) {
+        console.warn('[ADMIN-USER-CREATION] Validation warnings:', validationResult.warnings);
       }
 
-      // Password validation for immediate access
-      if (params.immediate_password && params.immediate_password.length < 6) {
-        throw new Error('Password must be at least 6 characters long');
-      }
+      // Use sanitized data
+      const sanitizedData = validationResult.sanitizedData || {};
+      const emailToUse = sanitizedData.email || params.email.toLowerCase().trim();
+      const roleToUse = sanitizedData.role || params.role;
 
-      console.log('[ADMIN-USER-CREATION] Creating user:', params.email);
+      console.log('[ADMIN-USER-CREATION] Creating user:', emailToUse);
 
-      // Call the edge function
+      // Call the edge function with sanitized data
       const { data, error } = await supabase.functions.invoke('admin-user-creator', {
         body: {
-          email: params.email.toLowerCase().trim(),
-          role: params.role,
+          email: emailToUse,
+          role: roleToUse,
           immediate_password: params.immediate_password,
           send_email: params.send_email ?? true,
-          admin_created: params.admin_created ?? true
+          admin_created: params.admin_created ?? true,
+          username: sanitizedData.username || params.username
         }
       });
 
@@ -116,7 +135,11 @@ export const useAdminUserCreation = () => {
 
       console.log('[ADMIN-USER-CREATION] User created successfully:', result.data?.user_id);
       
-      return { success: true, data: result.data };
+      return { 
+        success: true, 
+        data: result.data,
+        warnings: validationResult.warnings.length > 0 ? validationResult.warnings : undefined
+      };
 
     } catch (error: any) {
       console.error('[ADMIN-USER-CREATION] Error:', error);
@@ -226,6 +249,23 @@ export const useAdminUserCreation = () => {
     };
   };
 
+  const validateAdminData = (data: {
+    email: string;
+    role: string;
+    password?: string;
+    username?: string;
+  }): AdminValidationResult => {
+    return validateAdminUserData(data);
+  };
+
+  const validateAdminEmailOnly = (email: string): AdminValidationResult => {
+    return validateAdminEmail(email);
+  };
+
+  const validateAdminPasswordOnly = (password: string, email?: string): AdminValidationResult => {
+    return validateAdminPassword(password, email);
+  };
+
   return {
     createAdminUser,
     generateSecurePassword,
@@ -233,6 +273,9 @@ export const useAdminUserCreation = () => {
     generatePasswordWithTemplate,
     getPasswordTemplates,
     createBulkAdminUsers,
+    validateAdminData,
+    validateAdminEmailOnly, 
+    validateAdminPasswordOnly,
     isCreating
   };
 };
