@@ -4,7 +4,9 @@ import { validateEmail, checkRateLimit, extractSecurityContext, logSecurityEvent
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-csrf-token',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Credentials': 'true',
 }
 
 serve(async (req) => {
@@ -22,6 +24,31 @@ serve(async (req) => {
 
     // Extract security context for rate limiting and logging
     const securityContext = extractSecurityContext(req)
+    
+    // Basic CSRF protection - check for custom header in POST requests
+    const csrfToken = req.headers.get('x-csrf-token');
+    const referer = req.headers.get('referer');
+    const origin = req.headers.get('origin');
+    
+    // Simple CSRF check - require either CSRF token or same-origin request
+    if (!csrfToken && referer && origin && !referer.startsWith(origin)) {
+      await logSecurityEvent(
+        supabase,
+        'admin_creation_possible_csrf',
+        'high',
+        {
+          referer,
+          origin,
+          missing_csrf_token: !csrfToken
+        },
+        securityContext
+      )
+      
+      return new Response(JSON.stringify({ 
+        success: false, 
+        error: 'Invalid request origin. Please refresh the page and try again.' 
+      }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+    }
     
     // Rate limiting for admin user creation
     const rateLimitResult = await checkRateLimit(supabase, {

@@ -12,6 +12,8 @@ import {
   validateAdminUserData, 
   validateAdminEmail, 
   validateAdminPassword,
+  generateUniqueUsername,
+  checkSecurityRisks,
   type AdminValidationResult 
 } from '@/lib/validations/admin-user';
 
@@ -78,7 +80,7 @@ export const useAdminUserCreation = () => {
 
       console.log('[ADMIN-USER-CREATION] Creating user:', emailToUse);
 
-      // Call the edge function with sanitized data
+      // Call the edge function with sanitized data and CSRF protection
       const { data, error } = await supabase.functions.invoke('admin-user-creator', {
         body: {
           email: emailToUse,
@@ -87,6 +89,9 @@ export const useAdminUserCreation = () => {
           send_email: params.send_email ?? true,
           admin_created: params.admin_created ?? true,
           username: sanitizedData.username || params.username
+        },
+        headers: {
+          'x-csrf-token': Date.now().toString() // Simple CSRF token
         }
       });
 
@@ -249,6 +254,31 @@ export const useAdminUserCreation = () => {
     };
   };
 
+  const generateUniqueUsernameFromEmail = async (email: string): Promise<string> => {
+    try {
+      // Get existing usernames from profiles table to check for conflicts
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('name')
+        .not('name', 'is', null);
+      
+      const existingUsernames = profiles?.map(p => p.name) || [];
+      return generateUniqueUsername(email, existingUsernames);
+    } catch (error) {
+      console.warn('Failed to check existing usernames, using basic generation:', error);
+      return generateUsernameFromEmail(email, 'full');
+    }
+  };
+
+  const checkUserSecurityRisks = (data: {
+    email: string;
+    role: string;
+    username?: string;
+    password?: string;
+  }) => {
+    return checkSecurityRisks(data);
+  };
+
   const validateAdminData = (data: {
     email: string;
     role: string;
@@ -270,12 +300,14 @@ export const useAdminUserCreation = () => {
     createAdminUser,
     generateSecurePassword,
     generateUsernameFromEmailAddr,
+    generateUniqueUsernameFromEmail,
     generatePasswordWithTemplate,
     getPasswordTemplates,
     createBulkAdminUsers,
     validateAdminData,
     validateAdminEmailOnly, 
     validateAdminPasswordOnly,
+    checkUserSecurityRisks,
     isCreating
   };
 };

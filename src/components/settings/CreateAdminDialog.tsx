@@ -8,9 +8,10 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Shield, Mail, Key, Users, UserPlus, RefreshCw, Settings, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Shield, Mail, Key, Users, UserPlus, RefreshCw, Settings, AlertTriangle, CheckCircle, ShieldCheck } from 'lucide-react';
 import { useAdminUserCreation } from '@/hooks/useAdminUserCreation';
 import { useToast } from '@/hooks/use-toast';
+import AdminUserCreationErrorBoundary from '@/components/admin/AdminUserCreationErrorBoundary';
 interface CreateAdminDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -35,6 +36,7 @@ export const CreateAdminDialog = ({
   // Validation states
   const [emailValidation, setEmailValidation] = useState<{ valid: boolean; errors: string[]; warnings: string[] } | null>(null);
   const [passwordValidation, setPasswordValidation] = useState<{ valid: boolean; errors: string[]; warnings: string[] } | null>(null);
+  const [securityRisks, setSecurityRisks] = useState<{ risks: string[]; recommendations: string[] } | null>(null);
   const [isValidating, setIsValidating] = useState(false);
 
   const { toast } = useToast();
@@ -42,11 +44,13 @@ export const CreateAdminDialog = ({
     createAdminUser,
     generateSecurePassword,
     generateUsernameFromEmailAddr,
+    generateUniqueUsernameFromEmail,
     generatePasswordWithTemplate,
     getPasswordTemplates,
     validateAdminData,
     validateAdminEmailOnly,
     validateAdminPasswordOnly,
+    checkUserSecurityRisks,
     isCreating
   } = useAdminUserCreation();
   const passwordTemplates = getPasswordTemplates();
@@ -73,13 +77,33 @@ export const CreateAdminDialog = ({
     }
   }, [immediatePassword, email, useImmediateAccess, validateAdminPasswordOnly]);
 
-  // Auto-generate username when email changes
+  // Auto-generate username when email changes using unique generation
   useEffect(() => {
     if (email && useAutoUsername) {
-      const generatedUsername = generateUsernameFromEmailAddr(email, usernameFormat);
-      setUsername(generatedUsername);
+      generateUniqueUsernameFromEmail(email).then(uniqueUsername => {
+        setUsername(uniqueUsername);
+      }).catch(() => {
+        // Fallback to basic generation
+        const basicUsername = generateUsernameFromEmailAddr(email, usernameFormat);
+        setUsername(basicUsername);
+      });
     }
-  }, [email, useAutoUsername, usernameFormat, generateUsernameFromEmailAddr]);
+  }, [email, useAutoUsername, usernameFormat, generateUsernameFromEmailAddr, generateUniqueUsernameFromEmail]);
+
+  // Security risk analysis
+  useEffect(() => {
+    if (email.trim() && role) {
+      const risks = checkUserSecurityRisks({
+        email: email.trim(),
+        role,
+        username: username?.trim(),
+        password: useImmediateAccess ? immediatePassword : undefined
+      });
+      setSecurityRisks(risks);
+    } else {
+      setSecurityRisks(null);
+    }
+  }, [email, role, username, immediatePassword, useImmediateAccess, checkUserSecurityRisks]);
   const handleGeneratePassword = () => {
     if (passwordTemplate === 'secure_random') {
       const newPassword = generateSecurePassword();
@@ -178,7 +202,9 @@ export const CreateAdminDialog = ({
       onSuccess?.();
     }
   };
-  return <Dialog open={open} onOpenChange={onOpenChange}>
+  return (
+    <AdminUserCreationErrorBoundary context="CreateAdminDialog">
+      <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px] max-h-[90vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b bg-muted/30">
           <DialogTitle className="flex items-center gap-3 text-lg font-semibold">
@@ -416,6 +442,46 @@ export const CreateAdminDialog = ({
                 )}
               </div>
 
+              {/* Security Risk Assessment */}
+              {securityRisks && (securityRisks.risks.length > 0 || securityRisks.recommendations.length > 0) && (
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <ShieldCheck className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                    <div className="space-y-3 flex-1">
+                      <Label className="text-base font-medium text-yellow-800">Security Assessment</Label>
+                      
+                      {securityRisks.risks.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium text-yellow-800">Potential Risks:</p>
+                          <ul className="text-sm text-yellow-700 space-y-1">
+                            {securityRisks.risks.map((risk, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="w-1.5 h-1.5 bg-yellow-600 rounded-full mt-2 flex-shrink-0"></span>
+                                <span>{risk}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {securityRisks.recommendations.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium text-yellow-800">Recommendations:</p>
+                          <ul className="text-sm text-yellow-700 space-y-1">
+                            {securityRisks.recommendations.map((rec, idx) => (
+                              <li key={idx} className="flex items-start gap-2">
+                                <span className="w-1.5 h-1.5 bg-green-600 rounded-full mt-2 flex-shrink-0"></span>
+                                <span>{rec}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="p-4 bg-muted/30 rounded-lg">
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1 flex-1">
@@ -469,5 +535,7 @@ export const CreateAdminDialog = ({
           </DialogFooter>
         </form>
       </DialogContent>
-    </Dialog>;
+    </Dialog>
+    </AdminUserCreationErrorBoundary>
+  );
 };

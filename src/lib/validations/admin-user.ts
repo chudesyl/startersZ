@@ -307,10 +307,99 @@ export function validateUsername(username: string): AdminValidationResult {
     warnings.push('Username contains potentially suspicious patterns');
   }
 
-  return {
-    valid: errors.length === 0,
-    errors,
-    warnings,
-    sanitizedData: { username: trimmedUsername }
-  };
+/**
+ * Generate unique username with conflict resolution
+ */
+export function generateUniqueUsername(email: string, existingUsernames: string[] = []): string {
+  const baseUsername = email.split('@')[0].toLowerCase().replace(/[^a-zA-Z0-9._-]/g, '');
+  
+  // Check if base username is available
+  if (!existingUsernames.includes(baseUsername)) {
+    return baseUsername;
+  }
+  
+  // Try variations with numbers
+  for (let i = 1; i <= 99; i++) {
+    const candidate = `${baseUsername}${i}`;
+    if (!existingUsernames.includes(candidate)) {
+      return candidate;
+    }
+  }
+  
+  // Fallback with timestamp
+  const timestamp = Date.now().toString().slice(-4);
+  return `${baseUsername}_${timestamp}`;
+}
+
+/**
+ * Check for potential security risks in user data
+ */
+export function checkSecurityRisks(data: {
+  email: string;
+  role: string;
+  username?: string;
+  password?: string;
+}): { risks: string[]; recommendations: string[] } {
+  const risks: string[] = [];
+  const recommendations: string[] = [];
+
+  // Check for suspicious email patterns
+  const suspiciousEmailPatterns = [
+    /temp.*mail/i, /disposable.*mail/i, /throw.*away/i, /guerrilla.*mail/i,
+    /mailinator/i, /10.*minute.*mail/i, /spam.*box/i
+  ];
+  
+  const hasSuspiciousEmail = suspiciousEmailPatterns.some(pattern => 
+    pattern.test(data.email)
+  );
+  
+  if (hasSuspiciousEmail) {
+    risks.push('Email appears to be from a temporary/disposable email service');
+    recommendations.push('Consider requiring email verification or using organizational email domains only');
+  }
+
+  // Check for weak username patterns
+  if (data.username) {
+    const weakUsernamePatterns = ['test', 'demo', 'admin', 'root', 'user'];
+    const hasWeakUsername = weakUsernamePatterns.some(pattern => 
+      data.username!.toLowerCase().includes(pattern)
+    );
+    
+    if (hasWeakUsername) {
+      risks.push('Username contains common/predictable patterns');
+      recommendations.push('Generate a more unique username based on the email address');
+    }
+  }
+
+  // Password-related security checks
+  if (data.password) {
+    // Check for password reuse patterns
+    const passwordIncludesEmail = data.password.toLowerCase().includes(
+      data.email.split('@')[0].toLowerCase()
+    );
+    
+    if (passwordIncludesEmail) {
+      risks.push('Password contains parts of the email address');
+      recommendations.push('Use a password that does not contain personal information');
+    }
+
+    // Check for keyboard patterns
+    const keyboardPatterns = ['qwerty', 'asdf', '1234', 'abcd'];
+    const hasKeyboardPattern = keyboardPatterns.some(pattern =>
+      data.password!.toLowerCase().includes(pattern)
+    );
+    
+    if (hasKeyboardPattern) {
+      risks.push('Password contains common keyboard patterns');
+      recommendations.push('Use a randomly generated password with mixed character types');
+    }
+  }
+
+  // Role-based security considerations
+  if (data.role === 'admin') {
+    recommendations.push('Admin role grants full system access - ensure user requires this level of access');
+    recommendations.push('Consider enabling additional security measures like 2FA for admin accounts');
+  }
+
+  return { risks, recommendations };
 }
