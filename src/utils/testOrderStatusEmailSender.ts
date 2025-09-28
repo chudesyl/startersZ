@@ -17,7 +17,7 @@ import { orderStatusTemplates } from '@/emailTemplates/orderStatusTemplates';
 // ⚠️ EDIT THESE SETTINGS BEFORE RUNNING THE TEST
 const TEST_CONFIG = {
   // Change this to your test email address
-  recipientEmail: 'test@example.com',
+  recipientEmail: 'admin@smallchops.com', // Change this to your email!
   
   // Test order details
   orderNumber: 'TEST-ORD-' + Date.now(),
